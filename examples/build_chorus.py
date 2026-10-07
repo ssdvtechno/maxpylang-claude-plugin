@@ -2,14 +2,12 @@
 import os
 import sys
 
-import maxpylang as mp
-
 # mpl.py lives in the skill; normally it is copied next to the build script
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skills", "maxpylang", "scripts"))
 import mpl  # noqa: E402
 
 BASE_MS = 15.0
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 
 mpl.comment(p, "=== STEREO CHORUS ===", 30, 5)
 src = mpl.at(p, "plugin~", 30, 30)
@@ -21,6 +19,7 @@ depth = mpl.ui(p, "live.dial", 500, 30)
 mpl.live_param(depth, "Depth", mmin=0., mmax=8., initial=3., unitstyle="ms")
 mix = mpl.ui(p, "live.dial", 560, 30)
 mpl.live_param(mix, "Mix", mmin=0., mmax=1., initial=0.5, unitstyle="float")
+mpl.face(rate, depth, mix)                        # the three dials are the device's face in Live
 
 for ch in (0, 1):
     x = 30 + ch * 200

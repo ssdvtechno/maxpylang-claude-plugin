@@ -57,7 +57,9 @@ def card(name, e):
         lines.append(f"   aliases: {', '.join(e['aka'])}")
     if e.get("mp") is False:
         lines.append("   NOT in maxpylang database -> place with mpl.at()/mpl.ui(), not patch.place()")
-    if e.get("curated"):
+    if e.get("verified"):
+        lines.append(f"   ({e['verified']})")
+    elif e.get("curated"):
         lines.append("   (curated entry: I/O from typical M4L patches; verify in Max)")
     if e.get("args"):
         lines.append(f"   args: {' '.join(e['args'])}   (? = optional)")

@@ -1,6 +1,6 @@
 {
   "name": "maxpylang",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Unofficial Claude Code plugin: build, edit and lint Max/MSP/Jitter patches (.maxpat) and Max for Live devices (.amxd) from Python with MaxPyLang. Includes an object reference (1000+ objects with inlet/outlet docs), a patch linter, and a safety layer that works around MaxPyLang bugs.",
   "author": {
     "name": "ssdvtechno",

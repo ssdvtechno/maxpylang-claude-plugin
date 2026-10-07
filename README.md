@@ -22,7 +22,8 @@ Restart Claude Code. The skill triggers on Max/MSP/Max for Live requests, or cal
 `/maxpylang:maxpylang`.
 
 Needs Python 3.9+. Claude installs MaxPyLang from GitHub into the project's venv when it's missing
-(the PyPI release is older but also works). Max is only needed to open the results.
+(the PyPI release is older but also works; offline, it installs the bundled copy). Max is only needed to
+open the results. Optional: `matplotlib` for PNG previews, `playwright` for the audio check.
 
 Update later with `claude plugin marketplace update maxpylang-tools && claude plugin update maxpylang@maxpylang-tools`.
 
@@ -35,12 +36,18 @@ skills/maxpylang/
   SKILL.md                        workflow, Max semantics, layout rules, quirks
   scripts/mpl.py                  safety layer over MaxPyLang (copied next to build scripts)
   scripts/maxref.py               object lookup / search / typo check (stdlib only)
-  scripts/inspect_patch.py        .maxpat/.amxd summary + linter (stdlib only)
-  references/recipes.md           10 tested build scripts (synths, sequencer, Jitter, M4L, editing)
-  references/m4l.md               Max for Live rules and live.* parameters
+  scripts/inspect_patch.py        .maxpat/.amxd summary + linter, incl. Max for Live device faces (stdlib only)
+  scripts/render_patch.py         draw a patch or device face as PNG (matplotlib) or SVG (stdlib)
+  scripts/audio_check.py          render audio in MaxPyLang's browser engine (playwright) / share a listen link
+  references/recipes.md           15 tested build scripts (synths, poly~, gen~, js, Jitter GL, M4L, Live API, editing)
+  references/m4l.md               Max for Live rules, device faces, live.* parameters and I/O
   references/api.md               raw MaxPyLang API + known bugs
-  data/objects.json               1063 objects: I/O counts, args, inlet/outlet docs, domains
+  data/objects.json               1068 objects: I/O counts, args, inlet/outlet docs, domains
+  data/web_engine.json            objects the browser engine implements (for audio_check)
+  vendor/                         MaxPyLang wheel (GitHub 0a171e1, MIT) for installs without network
 examples/                         two patches built by the plugin, with their build scripts
+tests/run_all.py                  builds and checks every recipe and example (used by CI)
+evals/                            `claude plugin eval` cases: does Claude use the skill well?
 ```
 
 The scripts also work without Claude:
@@ -53,12 +60,28 @@ python3 skills/maxpylang/scripts/maxref.py -s lowpass
 python3 skills/maxpylang/scripts/inspect_patch.py examples/chorus.amxd
 ```
 
-## Status
+```bash
+python3 skills/maxpylang/scripts/render_patch.py examples/chorus.amxd --presentation
+```
 
-- All recipes and examples build and lint clean on MaxPyLang 0.1.1 (PyPI) and the current GitHub main.
-- Generated files have not yet been checked across Max/Live versions. The `live.*` UI objects and their
-  parameter settings are written by hand (MaxPyLang's database has none); please open an issue if one
-  misbehaves in Live.
+```bash
+python3 skills/maxpylang/scripts/audio_check.py examples/chorus.amxd
+```
+
+## What gets checked
+
+- **CI** (`.github/workflows/ci.yml`): every recipe and example is built on Python 3.10 and 3.12 against both
+  MaxPyLang releases (PyPI and GitHub main, also weekly), linted and rendered; patches that should make
+  sound are rendered in the browser engine; the manifest is validated.
+- **Evals** (`evals/`): five prompts graded by an LLM judge, including one where the skill must stay out of
+  the way. Run them with
+  `claude plugin eval . --trust-plugin --allow-tools Bash Write Edit --runs 1`.
+- **Audio check limits**: the browser engine's offline render runs no control messages (loadbang, metro,
+  notes, UI), so the check covers the fixed signal path. The engine implements ~330 of Max's objects; the
+  check lists the others.
+- **Not checked**: opening files in Max/Live. `live.*` inlet/outlet counts were verified against real
+  Max-saved patches on GitHub; generated `gen~` boxes and device faces have not been opened in Max yet.
+  Please open an issue if something misbehaves.
 
 ## What `mpl.py` works around in MaxPyLang
 
@@ -74,13 +97,16 @@ python3 skills/maxpylang/scripts/inspect_patch.py examples/chorus.amxd
 | grid placement offsets x by +80 | exact coordinates |
 | `load_file` crashes on Max-saved patches with UI boxes | `mpl.load` |
 | PyPI 0.1.1 has no `.amxd` save | `mpl.save` writes `.amxd` itself |
+| no presentation view for devices | `mpl.face` / `mpl.present` |
+| `poly~`, `gen~`, `js` I/O unknown | `mpl.poly`, `mpl.gen`, `mpl.js` |
 | noisy stdout on every call | silenced |
 
 ## Developing
 
 Claude Code runs a cached copy of an installed plugin. To try local changes, start Claude with
-`claude --plugin-dir /path/to/maxpylang-claude-plugin`. To release, bump `version` in both
-`.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+`claude --plugin-dir /path/to/maxpylang-claude-plugin`. Before pushing, run `python tests/run_all.py --render`
+(add `--audio` with playwright installed). To release, bump `version` in both `.claude-plugin/plugin.json`
+and `.claude-plugin/marketplace.json`.
 
 ## Credits and license
 

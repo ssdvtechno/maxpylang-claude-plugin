@@ -5,15 +5,15 @@ Adapt them; don't paste blindly. Check unfamiliar objects with `maxref.py` first
 
 Contents: 1 MIDI keyboard synth · 2 step sequencer · 3 additive synth (loops) · 4 abstraction ·
 5 Jitter noise · 6 M4L stereo delay · 7 M4L transposer · 8 M4L instrument · 9 editing a patch ·
-10 random/generative patch
+10 random/generative patch · 11 polyphonic synth (poly~) · 12 gen~ waveshaper · 13 js note picker ·
+14 M4L tempo-synced tremolo (Live API) · 15 Jitter OpenGL torus
 
 ## 1. Keyboard synth with ADSR
 
 ```python
-import maxpylang as mp
 import mpl
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 mpl.comment(p, "=== KEYBOARD SYNTH: click ezdac~, play the keys ===", 30, 10)
 
 kb   = mpl.at(p, "kslider", 30, 40)
@@ -38,12 +38,11 @@ mpl.save(p, "keyboard_synth.maxpat")
 ## 2. Step sequencer from a Python list
 
 ```python
-import maxpylang as mp
 import mpl
 
 NOTES = [48, 55, 58, 60, 63, 60, 58, 55]          # edit in Python, regenerate
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 mpl.comment(p, "=== 8-STEP SEQUENCER: toggle to run ===", 30, 10)
 tog   = mpl.at(p, "toggle", 30, 40)
 clock = mpl.at(p, "metro 150", 30, 80)
@@ -72,11 +71,10 @@ mpl.save(p, "step_sequencer.maxpat")
 ## 3. Additive synth: N partials generated in a loop
 
 ```python
-import maxpylang as mp
 import mpl
 
 N, F0, COL = 8, 110, 90
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 mpl.comment(p, f"=== ADDITIVE: {N} partials of {F0} Hz ===", 30, 10)
 
 mix = mpl.at(p, "*~ %.3f" % (0.5 / N), 30, 200)
@@ -96,11 +94,10 @@ MaxPyLang detects an abstraction's inlets/outlets when `<name>.maxpat` exists in
 directory** at build time. Build the child first, in the same folder as the parent.
 
 ```python
-import maxpylang as mp
 import mpl
 
 # child: voice.maxpat  (inlet = MIDI pitch, outlet = signal)
-v = mp.MaxPatch(verbose=False)
+v = mpl.patch()
 i  = mpl.at(v, "inlet", 30, 20)
 m  = mpl.at(v, "mtof", 30, 60)
 o  = mpl.at(v, "rect~", 30, 100)
@@ -110,7 +107,7 @@ mpl.chain(v, i, m, o, g, out)
 mpl.save(v, "voice.maxpat")
 
 # parent: a chord of voices
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 chord = [60, 64, 67, 71]
 dac = mpl.at(p, "ezdac~", 30, 200)
 for n, pitch in enumerate(chord):
@@ -126,10 +123,9 @@ Ship `voice.maxpat` together with `chord.maxpat`. For `poly~ voice 8` use
 ## 5. Jitter: animated noise in a window
 
 ```python
-import maxpylang as mp
 import mpl
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 mpl.comment(p, "=== JITTER NOISE: toggle on ===", 30, 10)
 tog   = mpl.at(p, "toggle", 30, 40)
 clock = mpl.at(p, "qmetro 33", 30, 80)
@@ -144,10 +140,9 @@ mpl.save(p, "jitter_noise.maxpat")
 Python loops build both channels identically. See `m4l.md` for parameter details.
 
 ```python
-import maxpylang as mp
 import mpl
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 src = mpl.at(p, "plugin~", 30, 30)
 out = mpl.at(p, "plugout~", 30, 400)
 
@@ -157,6 +152,7 @@ fb = mpl.ui(p, "live.dial", 460, 30)
 mpl.live_param(fb, "Feedback", mmin=0., mmax=0.95, initial=0.4, unitstyle="float")
 mix = mpl.ui(p, "live.dial", 520, 30)
 mpl.live_param(mix, "Mix", mmin=0., mmax=1., initial=0.35, unitstyle="float")
+mpl.face(time, fb, mix)                          # what Live shows in the device strip
 
 for ch in (0, 1):
     x = 30 + ch * 180
@@ -179,10 +175,9 @@ mpl.save(p, "stereo_delay.amxd", device_type="audio_effect")
 ## 7. Max for Live MIDI effect: transposer
 
 ```python
-import maxpylang as mp
 import mpl
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 inp   = mpl.at(p, "midiin", 30, 30)
 parse = mpl.at(p, "midiparse", 30, 70)
 unp   = mpl.at(p, "unpack 0 0", 30, 110)
@@ -192,6 +187,7 @@ fmt   = mpl.at(p, "midiformat", 30, 300)
 outp  = mpl.at(p, "midiout", 30, 340)
 semi  = mpl.ui(p, "live.dial", 300, 30)
 mpl.live_param(semi, "Transpose", ptype="int", mmin=-24, mmax=24, initial=0, unitstyle="semitones")
+mpl.face(semi)
 
 mpl.wire(p,
     (inp, 0, parse, 0), (parse, 0, unp, 0),
@@ -209,10 +205,9 @@ Note: changing the dial while notes are held can leave hanging notes (note-off g
 ## 8. Max for Live instrument: mono synth
 
 ```python
-import maxpylang as mp
 import mpl
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 mpl.comment(p, "=== MIDI ===", 30, 10)
 note = mpl.at(p, "notein", 30, 40)
 mtof = mpl.at(p, "mtof", 30, 80)
@@ -227,6 +222,7 @@ clip = mpl.at(p, "clip~ -1. 1.", 30, 310)
 out  = mpl.at(p, "plugout~", 30, 350)
 cut  = mpl.ui(p, "live.dial", 300, 150)
 mpl.live_param(cut, "Cutoff", mmin=50., mmax=12000., initial=1500., unitstyle="hz", exponent=3.)
+mpl.face(cut)
 
 mpl.wire(p,
     (note, 0, mtof, 0), (note, 1, vel, 0),
@@ -241,7 +237,6 @@ mpl.save(p, "mono_synth.amxd", device_type="instrument")
 ## 9. Edit an existing patch
 
 ```python
-import maxpylang as mp
 import mpl
 
 p = mpl.load("keyboard_synth.maxpat")              # ids renumbered obj-1..obj-N
@@ -264,11 +259,10 @@ inlet/outlet index exists on the new object. `mpl.delete(p, "obj-4", ...)` remov
 
 ```python
 import random
-import maxpylang as mp
 import mpl
 
 random.seed(7)
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 dac = mpl.at(p, "ezdac~", 30, 400)
 sumr = mpl.at(p, "*~ 0.05", 30, 360)
 for k in range(12):
@@ -283,3 +277,152 @@ for k in range(12):
 mpl.wire(p, (sumr, 0, dac, 0), (sumr, 0, dac, 1))
 mpl.save(p, "drone_field.maxpat")
 ```
+
+## 11. Polyphonic synth with poly~
+
+Build the voice first (same folder), then `mpl.poly` reads its `in`/`out~` objects for the I/O.
+
+```python
+import mpl
+
+# voice.maxpat: gets "pitch velocity" lists, one voice per note
+v = mpl.patch()
+inp  = mpl.at(v, "in 1", 30, 20)
+unp  = mpl.at(v, "unpack 0 0", 30, 60)
+mtof = mpl.at(v, "mtof", 30, 100)
+vel  = mpl.at(v, "/ 127.", 160, 100)
+osc  = mpl.at(v, "saw~", 30, 140)
+filt = mpl.at(v, "lores~ 2000 0.4", 30, 180)
+env  = mpl.at(v, "adsr~ 5 150 0.6 400", 160, 140)
+vca  = mpl.at(v, "*~", 30, 230)
+out  = mpl.at(v, "out~ 1", 30, 270)
+busy = mpl.at(v, "thispoly~", 300, 190)        # adsr~ mute outlet frees the voice after release
+mpl.wire(v, (inp, 0, unp, 0), (unp, 0, mtof, 0), (unp, 1, vel, 0), (mtof, 0, osc, 0),
+            (osc, 0, filt, 0), (filt, 0, vca, 0), (vel, 0, env, 0), (env, 0, vca, 1),
+            (env, 2, busy, 0), (vca, 0, out, 0))
+mpl.save(v, "polyvoice.maxpat")
+
+# parent: notes from a MIDI keyboard -> 8 voices
+p = mpl.patch()
+mpl.comment(p, "=== POLY SYNTH: click ezdac~, play a MIDI keyboard ===", 30, 10)
+note = mpl.at(p, "notein", 30, 40)
+pk   = mpl.at(p, "pack 0 0", 30, 120)
+pre  = mpl.at(p, "prepend midinote", 30, 160)
+syn  = mpl.poly(p, "polyvoice", 8, 30, 200)     # poly~ polyvoice 8: 1 inlet, 1 signal outlet
+vol  = mpl.at(p, "*~ 0.15", 30, 240)
+dac  = mpl.at(p, "ezdac~", 30, 280)
+mpl.wire(p, (note, 1, pk, 1), (note, 0, pk, 0),          # velocity (cold) first, then pitch
+            (pk, 0, pre, 0), (pre, 0, syn, 0), (syn, 0, vol, 0), (vol, 0, dac, 0), (vol, 0, dac, 1))
+mpl.save(p, "poly_synth.maxpat")
+```
+Note-offs (velocity 0) reach the voice playing that pitch, so notes release properly. A `kslider`
+only sends note-offs in polyphonic mode (`@mode 1`).
+
+## 12. gen~ waveshaper (GenExpr codebox)
+
+`mpl.gen` embeds the code in a gen~ box; in1..inN / out1..outN in the code set its inlets/outlets.
+
+```python
+import mpl
+
+p = mpl.patch()
+mpl.comment(p, "=== GEN~ WAVESHAPER: drive 0..1 ===", 30, 10)
+osc   = mpl.at(p, "cycle~ 110", 30, 40)
+drive = mpl.at(p, "flonum", 200, 40)
+init  = mpl.at(p, "loadmess 0.4", 300, 40)
+shape = mpl.gen(p, "gain = 1 + in2 * 20;\nout1 = tanh(in1 * gain) / tanh(gain);", 30, 90)
+vol   = mpl.at(p, "*~ 0.2", 30, 140)
+dac   = mpl.at(p, "ezdac~", 30, 180)
+mpl.wire(p, (init, 0, drive, 0), (osc, 0, shape, 0), (drive, 0, shape, 1),
+            (shape, 0, vol, 0), (vol, 0, dac, 0), (vol, 0, dac, 1))
+mpl.save(p, "waveshaper.maxpat")
+```
+
+## 13. js: note picker written in JavaScript
+
+`mpl.js` writes the .js file next to the patch; `inlets`/`outlets` in the code set the box I/O.
+
+```python
+import mpl
+
+CODE = """inlets = 1;
+outlets = 1;
+var scale = [0, 2, 4, 7, 9, 12];
+function bang() {
+    outlet(0, 60 + scale[Math.floor(Math.random() * scale.length)]);
+}
+"""
+p = mpl.patch()
+mpl.comment(p, "=== JS NOTE PICKER: click ezdac~, toggle ===", 30, 10)
+tog   = mpl.at(p, "toggle", 30, 40)
+clock = mpl.at(p, "metro 200", 30, 80)
+pick  = mpl.js(p, "pentapick.js", CODE, 30, 120)
+mtof  = mpl.at(p, "mtof", 30, 160)
+osc   = mpl.at(p, "tri~", 30, 200)
+vol   = mpl.at(p, "*~ 0.2", 30, 240)
+dac   = mpl.at(p, "ezdac~", 30, 280)
+mpl.chain(p, tog, clock, pick, mtof, osc, vol, dac)
+mpl.wire(p, (vol, 0, dac, 1))
+mpl.save(p, "js_picker.maxpat")
+```
+Ship `pentapick.js` with the patch.
+
+## 14. Max for Live: tempo-synced tremolo (Live API)
+
+`live.thisdevice` fires when the device is ready; `live.path` finds the Live Set and
+`live.observer` reports its tempo whenever it changes. One LFO cycle per beat = tempo / 60 Hz.
+
+```python
+import mpl
+
+p = mpl.patch()
+mpl.comment(p, "=== TEMPO FOLLOW ===", 300, 10)
+ready = mpl.at(p, "live.thisdevice", 300, 40)
+path  = mpl.message(p, "path live_set", 300, 80)
+prop  = mpl.message(p, "property tempo", 450, 80)
+lp    = mpl.at(p, "live.path", 300, 120)
+obs   = mpl.at(p, "live.observer", 450, 160)
+hz    = mpl.at(p, "/ 60.", 450, 200)
+mpl.wire(p, (ready, 0, path, 0), (ready, 0, prop, 0), (path, 0, lp, 0),
+            (lp, 0, obs, 1), (prop, 0, obs, 0), (obs, 0, hz, 0))
+
+mpl.comment(p, "=== TREMOLO ===", 30, 230)
+lfo   = mpl.at(p, "cycle~ 2.", 450, 260)
+depth = mpl.ui(p, "live.dial", 600, 230)
+mpl.live_param(depth, "Depth", mmin=0., mmax=1., initial=0.5, unitstyle="float")
+amt   = mpl.at(p, "*~ 0.25", 450, 300)            # +-depth/2 around 1 - depth/2
+half  = mpl.at(p, "* 0.5", 600, 300)
+inv   = mpl.at(p, "!- 1.", 600, 340)
+off   = mpl.at(p, "+~ 0.75", 450, 340)
+scale = mpl.at(p, "* 0.5", 700, 300)
+src   = mpl.at(p, "plugin~", 30, 260)
+out   = mpl.at(p, "plugout~", 30, 460)
+mpl.wire(p, (hz, 0, lfo, 0), (lfo, 0, amt, 0), (amt, 0, off, 0),
+            (depth, 0, scale, 0), (scale, 0, amt, 1),
+            (depth, 0, half, 0), (half, 0, inv, 0), (inv, 0, off, 1))
+for ch in (0, 1):
+    x = 30 + ch * 140
+    vca  = mpl.at(p, "*~", x, 380)
+    clip = mpl.at(p, "clip~ -1. 1.", x, 420)
+    mpl.wire(p, (src, ch, vca, 0), (off, 0, vca, 1), (vca, 0, clip, 0), (clip, 0, out, ch))
+mpl.face(depth)
+mpl.save(p, "tempo_tremolo.amxd", device_type="audio_effect")
+```
+Gain = 1 - depth/2 + (depth/2) * LFO, so depth 0 is bypass and depth 1 swings 0..1.
+
+## 15. Jitter OpenGL: rotating torus
+
+```python
+import mpl
+
+p = mpl.patch()
+mpl.comment(p, "=== JITTER GL: toggle on, drag in the window to rotate ===", 30, 10)
+tog    = mpl.at(p, "toggle", 30, 40)
+world  = mpl.at(p, "jit.world torus @enable 0", 30, 80)
+handle = mpl.at(p, "jit.gl.handle torus @auto_rotate 1", 300, 120)
+shape  = mpl.at(p, "jit.gl.gridshape torus @shape torus @color 0.3 0.6 1. 1. @lighting_enable 1", 30, 160)
+mpl.wire(p, (tog, 0, world, 0), (handle, 0, shape, 0))
+mpl.save(p, "gl_torus.maxpat")
+```
+All three objects share the render context name `torus`; `jit.world` draws them on its own clock.
+

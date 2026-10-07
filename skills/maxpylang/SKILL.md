@@ -16,7 +16,9 @@ Paths below are relative to this skill's base directory (shown when the skill lo
 | `$SKILL/scripts/mpl.py` | Safety layer over MaxPyLang. **Copy next to every build script and use it.** |
 | `$SKILL/scripts/maxref.py` | Object lookup: inlets/outlets/args/attrs, search by function, typo check. |
 | `$SKILL/scripts/inspect_patch.py` | Summarize + lint any `.maxpat`/`.amxd` (also user-supplied ones). |
-| `$SKILL/references/recipes.md` | Tested build scripts: synth, sequencer, additive, abstraction, Jitter, M4L devices, editing. |
+| `$SKILL/scripts/render_patch.py` | Draw the patch (or a device's face with `--presentation`) as PNG/SVG. **Look at it.** |
+| `$SKILL/scripts/audio_check.py` | Render audio in MaxPyLang's browser engine: does the signal path make sound? `--url` gives a link to listen. |
+| `$SKILL/references/recipes.md` | 15 tested build scripts: synths, sequencer, poly~, gen~, js, Jitter (incl. OpenGL), M4L devices, Live API, editing. |
 | `$SKILL/references/m4l.md` | Max for Live rules, `live.*` parameters, device I/O. |
 | `$SKILL/references/api.md` | Raw MaxPyLang API + its known bugs (read before using `patch.place` directly). |
 
@@ -24,9 +26,13 @@ Paths below are relative to this skill's base directory (shown when the skill lo
 
 1. **Environment.** `python3 -c "import maxpylang"`. If missing, create/use a venv in the project and install
    from GitHub: `pip install "git+https://github.com/Barnard-PL-Labs/MaxPyLang.git"` (Python 3.9+).
+   **No network?** Install the bundled copy: `pip install --no-index --no-deps "$SKILL"/vendor/maxpylang-*.whl`.
+   Build scripts `import mpl` only (it imports maxpylang and stands in for its optional deps).
    PyPI's `maxpylang` 0.1.1 is older (no `.amxd` save, no stubs, no `abstraction=`); `mpl` works with both,
    the raw-API notes in `references/api.md` assume the GitHub version.
-   Ignore its `SyntaxWarning: invalid escape sequence` noise.
+   Ignore its `SyntaxWarning: invalid escape sequence` noise. Optional: `pip install matplotlib` (PNG previews;
+   without it previews fall back to the OS's SVG converter or SVG) and `pip install playwright` (audio check;
+   uses an installed Chrome/Brave/Edge or `python -m playwright install chromium`).
 2. **Design the signal flow first** in a few lines (source -> processing -> output, control paths, init).
 3. **Look up every object you are unsure of** before writing code. Never guess inlet/outlet indices:
    ```bash
@@ -36,19 +42,28 @@ Paths below are relative to this skill's base directory (shown when the skill lo
    ```
 4. **Write `build_<name>.py`** with `mpl` (skeleton below). Copy `mpl.py` beside it:
    `cp "$SKILL/scripts/mpl.py" .`
-5. **Run it, then lint**: `python3 build_<name>.py && python3 "$SKILL/scripts/inspect_patch.py" <out>.maxpat`.
-   Fix every ERROR; review WARN (overlaps, signal into control inlet, missing clip~ ...). Repeat.
+5. **Run it, then check**:
+   ```bash
+   python3 build_<name>.py
+   python3 "$SKILL/scripts/inspect_patch.py" <out>.maxpat                 # lint: fix every ERROR, review WARN
+   python3 "$SKILL/scripts/render_patch.py" <out>.maxpat                  # then Read the PNG: crossings, cramped rows
+   python3 "$SKILL/scripts/render_patch.py" <dev>.amxd --presentation     # devices: is the face right?
+   python3 "$SKILL/scripts/audio_check.py" <out>.maxpat                   # synths/effects: SOUND expected
+   ```
+   The audio check renders only the fixed signal path (no messages run) and lists objects the browser
+   engine doesn't implement. It exits with code 2 when playwright or a browser is missing: skip it then,
+   and say so. Repeat until clean.
 6. **Report**: file path, what it does, how to use it (e.g. "click the ezdac~ to turn audio on, toggle the
    metro"), and anything the user must provide (sample files, js files, abstractions next to the patch).
-   Keep the build script: it *is* the source of the patch.
+   Offer the `audio_check.py --url` link when the user has no Max at hand. Keep the build script: it *is*
+   the source of the patch.
 
 ## Skeleton
 
 ```python
-import maxpylang as mp
-import mpl  # copied from $SKILL/scripts/mpl.py
+import mpl  # copied from $SKILL/scripts/mpl.py; it imports maxpylang
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 X, Y, STEP = 30, 30, 40
 
 mpl.comment(p, "=== SOURCE ===", X, Y)
@@ -71,9 +86,14 @@ mpl.save(p, "tone.maxpat")                         # or device_type="instrument"
 | `extern(p, "text", x, y, ins, outs)` | Third-party externals, `p name` subpatchers, anything with known I/O. |
 | `wire(p, (a, o, b, i), ...)` / `chain(p, a, b, c)` | Bounds-checked; duplicate cords skipped. |
 | `live_param(obj, "Name", mmin=, mmax=, initial=, unitstyle="hz", enum=[...])` | Makes a `live.*` box a saved, automatable Live parameter. |
+| `face(*objs)` / `present(obj, x, y)` | **Every Max for Live device needs a face**: the controls Live shows in its 169 px device strip. |
+| `autolayout(p)` | Arrange boxes top-to-bottom by signal flow when hand placement gets messy (comments stay put). |
+| `poly(p, "voice", 8, x, y)` | `poly~` with I/O read from `./voice.maxpat` (`in N` / `out~ N`). |
+| `gen(p, "out1 = in1 * in2;", x, y)` | `gen~` with an embedded GenExpr codebox; `inN`/`outN` set its I/O. |
+| `js(p, "file.js", code, x, y)` | Writes the JavaScript file and places `js file.js`; `inlets = N;`/`outlets = N;` set I/O. |
 | `save(p, path, device_type=None)` | Validates (dup ids, bad xlet indices, placeholders) before writing. |
 
-Objects returned are MaxPyLang `MaxObject`s: `obj.ins[i]`, `obj.outs[i]`, `obj.name`, `obj._dict["box"]`.
+`mpl.patch()` returns a MaxPyLang `MaxPatch` (`mpl.mp` is the module). Objects returned are `MaxObject`s: `obj.ins[i]`, `obj.outs[i]`, `obj.name`, `obj._dict["box"]`.
 
 ## Max semantics you must get right
 
@@ -91,6 +111,8 @@ Objects returned are MaxPyLang `MaxObject`s: `obj.ins[i]`, `obj.outs[i]`, `obj.n
 - **Wireless**: `send name`/`receive name` (control) and `send~`/`receive~` (signal) avoid long cords.
 - **Files**: `buffer~ name file.wav`, `js script.js`, abstractions `name.maxpat` must sit next to the patch
   (or in Max's search path). Tell the user.
+- **Max for Live**: `plugin~`/`plugout~` instead of `adc~`/`dac~`, `clip~ -1. 1.` before `plugout~`,
+  `live.*` controls with `live_param`, and `mpl.face(...)` so the device shows its controls. See `references/m4l.md`.
 
 ## Layout conventions
 

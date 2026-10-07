@@ -1,8 +1,10 @@
 """
 mpl.py - thin safety layer over MaxPyLang (pip install maxpylang).
 
-Copy this file next to your build script and `import mpl`. It fixes/avoids known
-MaxPyLang quirks so generated patches open cleanly in Max:
+Copy this file next to your build script and `import mpl` (it imports maxpylang for you, and stands
+in for maxpylang's optional deps when installed offline). It fixes/avoids known MaxPyLang quirks:
+
+  patch()                      new empty patch (mpl.mp is the maxpylang module if you need it)
 
   at(patch, text, x, y)        place ONE object at exact (x, y); raises on typos with suggestions;
                                expands s/r/i/f/del/v abbreviations; falls back to a raw box when
@@ -14,6 +16,11 @@ MaxPyLang quirks so generated patches open cleanly in Max:
   wire(patch, (a, 0, b, 0), ...)          connect with bounds checks + readable errors
   chain(patch, a, b, c)                   a:0 -> b:0 -> c:0
   live_param(obj, "Cutoff", ...)          make a live.* UI object an automatable M4L parameter
+  present(obj, x, y) / face(*objs)       put controls on a Max for Live device's face (presentation view)
+  autolayout(patch)                       arrange boxes top-to-bottom by signal flow (skips comments)
+  poly(patch, "voice", 8, x, y)           poly~ box with I/O read from ./voice.maxpat
+  gen(patch, "out1 = in1 * 0.5;", x, y)   gen~ box with an embedded GenExpr codebox
+  js(patch, "name.js", code, x, y)        write a js file next to the patch and place its box
   load(path) / find(p, name) / replace(p, id, text) / delete(p, *ids)   edit existing patches quietly
   save(patch, path, device_type=None)     quiet save + structural validation
 
@@ -31,7 +38,29 @@ import re
 import sys
 import warnings
 
-import maxpylang as mp
+
+def _shim_optional_deps():
+    """maxpylang imports tabulate (error tables) and numpy (import_objs only) at import time.
+    When they're missing (offline install with --no-deps), stand in for them."""
+    import types
+    try:
+        import tabulate  # noqa: F401
+    except ImportError:
+        tab = types.ModuleType("tabulate")
+
+        def tabulate(rows, headers=(), **_):
+            rows = [list(map(str, r)) for r in rows]
+            return "\n".join(["  ".join(map(str, headers))] + ["  ".join(r) for r in rows])
+        tab.tabulate = tabulate
+        sys.modules["tabulate"] = tab
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        sys.modules["numpy"] = types.ModuleType("numpy")
+
+
+_shim_optional_deps()
+import maxpylang as mp  # noqa: E402
 
 try:
     from maxpylang.exceptions import UnknownObjectWarning
@@ -75,8 +104,20 @@ LIVE_UI = {
     "live.button": (1, 1, [""], [15, 15]),
     "live.menu":   (1, 3, ["", "", "float"], [100, 15]),
     "live.text":   (1, 2, ["", ""], [44, 15]),
+    "live.tab":    (1, 3, ["", "", "float"], [100, 20]),
     "live.gain~":  (2, 5, ["signal", "signal", "", "float", "list"], [48, 136]),
 }
+
+# Live API / device objects (object boxes, not in maxpylang's db): (inlets, outlets, outlettype).
+# Counts verified against real Max-saved patches on GitHub.
+LIVE_OBJ = {
+    "live.thisdevice": (1, 3, ["bang", "int", "int"]),
+    "live.path":       (1, 3, ["", "", ""]),
+    "live.object":     (2, 1, [""]),
+    "live.observer":   (2, 2, ["", ""]),
+}
+
+DEVICE_HEIGHT = 169  # px of a Max for Live device's face in Live
 
 UNITSTYLE = {"int": 0, "float": 1, "ms": 2, "time": 2, "hz": 3, "db": 4, "%": 5, "percent": 5,
              "pan": 6, "semitones": 7, "midi": 8, "custom": 9, "native": 10}
@@ -85,6 +126,12 @@ PTYPE = {"float": 0, "int": 1, "enum": 2}
 
 class MaxPatchError(ValueError):
     pass
+
+
+def patch(**kwargs):
+    """A new, empty MaxPyLang patch (quiet). Build scripts only need `import mpl`."""
+    with _quiet():
+        return mp.MaxPatch(verbose=False, **kwargs)
 
 
 @contextlib.contextmanager
@@ -158,6 +205,9 @@ def at(patch, text, x, y, io=None, **attribs):
         return message(patch, rest, x, y)
     if name in LIVE_UI:
         return ui(patch, name, x, y, **attribs)
+    if name in LIVE_OBJ:
+        ins, outs, ot = LIVE_OBJ[name]
+        return extern(patch, text, x, y, ins, outs, outlettype=ot)
     if io is not None:
         return extern(patch, text, x, y, *io)
     if name in IO_FIX:
@@ -246,13 +296,14 @@ def ui(patch, cls, x, y, ins=None, outs=None, outlettype=None, size=None, **box_
     return _put(patch, obj, x, y)
 
 
-def extern(patch, text, x, y, ins, outs, outlettype=None):
+def extern(patch, text, x, y, ins, outs, outlettype=None, **box_extra):
     """Raw object box with declared inlet/outlet counts (externals, `p name`, odd args).
     Built from box JSON, so it works on every maxpylang version and keeps `text` verbatim."""
     name = text.split()[0]
     box = {"id": "obj-0", "maxclass": "newobj", "numinlets": ins, "numoutlets": outs,
            "outlettype": outlettype or (["signal"] * outs if name.endswith("~") else [""] * outs),
            "patching_rect": [float(x), float(y), _width_for(text, 30), 22.0], "text": text}
+    box.update(box_extra)
     with _quiet():
         obj = mp.MaxObject({"box": box}, from_dict=True)
     if len(obj.ins) != ins or len(obj.outs) != outs:  # abstraction file in cwd overrode the counts
@@ -311,6 +362,156 @@ def live_param(obj, longname, shortname=None, ptype="float", mmin=0.0, mmax=1.0,
     box["varname"] = longname
     box.setdefault("saved_attribute_attributes", {})["valueof"] = vo
     return obj
+
+
+def present(obj, x, y, w=None, h=None):
+    """Show `obj` on the presentation view (the face of a Max for Live device) at (x, y).
+    The face is DEVICE_HEIGHT (169) px tall; width grows with the controls."""
+    box = obj._dict["box"]
+    rect = box.get("patching_rect", [0, 0, 40, 22])
+    box["presentation"] = 1
+    box["presentation_rect"] = [float(x), float(y), float(w or rect[2]), float(h or rect[3])]
+    return obj
+
+
+def face(*objs, x=10, y=10, gap=10, labels=None):
+    """Lay `objs` out left to right on the device face. Returns the face width used.
+    labels: optional {obj: "text"} comments placed above (live.* dials label themselves)."""
+    cx = float(x)
+    for o in objs:
+        r = o._dict["box"].get("patching_rect", [0, 0, 40, 22])
+        present(o, cx, y)
+        cx += r[2] + gap
+    return cx
+
+
+def autolayout(patch, x0=30, y0=30, row=45, gap=24, comments="keep"):
+    """Arrange boxes in rows by signal flow: sources on top, each box one row below its
+    deepest input (feedback cords ignored); within a row, ordered by the x of their inputs.
+    comments="keep" leaves comment boxes where they are, "drop" deletes them."""
+    objs = {oid: o for oid, o in patch.objs.items()}
+    movable = {oid for oid, o in objs.items() if o._dict["box"].get("maxclass") != "comment"}
+    parents = {oid: [] for oid in movable}
+    for oid in movable:
+        for inlet in objs[oid].ins:
+            for src in inlet.sources:
+                pid = src.parent._dict["box"]["id"]
+                if pid in movable and pid != oid:
+                    parents[oid].append(pid)
+    # longest-path layering with cycle protection (DFS marks feedback edges)
+    layer, state = {}, {}
+
+    def depth(oid):
+        if state.get(oid) == 1:      # on the stack: feedback cord, ignore
+            return -1
+        if oid in layer:
+            return layer[oid]
+        state[oid] = 1
+        d = 1 + max([depth(p) for p in parents[oid]] or [-1])
+        state[oid] = 2
+        layer[oid] = max(d, 0)
+        return layer[oid]
+
+    for oid in sorted(movable, key=lambda i: int(re.sub(r"\D", "", i) or 0)):
+        depth(oid)
+    rows = {}
+    for oid, d in layer.items():
+        rows.setdefault(d, []).append(oid)
+    xpos, row_y, y = {}, {}, float(y0)
+    for d in sorted(rows):
+        row_y[d] = y
+        tallest = max(objs[oid]._dict["box"]["patching_rect"][3] for oid in rows[d])
+        y += max(row, tallest + row - 22.0)
+    for d in sorted(rows):
+        def key(oid):
+            px = [xpos[p] for p in parents[oid] if p in xpos]
+            return (sum(px) / len(px)) if px else objs[oid]._dict["box"]["patching_rect"][0]
+        cx = float(x0)
+        for oid in sorted(rows[d], key=key):
+            box = objs[oid]._dict["box"]
+            r = box["patching_rect"]
+            want = key(oid) if any(p in xpos for p in parents[oid]) else cx
+            nx = max(cx, want)
+            r[0], r[1] = nx, row_y[d]
+            xpos[oid] = nx
+            cx = nx + r[2] + gap
+    if comments == "drop":
+        ids = [oid for oid in objs if oid not in movable]
+        if ids:
+            delete(patch, *ids)
+    return patch
+
+
+def poly(patch, voice, n, x, y, extra=""):
+    """poly~ box for ./<voice>.maxpat. Inlets/outlets come from the voice's in/in~ and
+    out/out~ objects (highest index wins), which maxpylang can't work out itself."""
+    import os
+    path = voice if voice.endswith(".maxpat") else voice + ".maxpat"
+    if not os.path.exists(path):
+        raise MaxPatchError(f"{path} not found in {os.getcwd()}: build the voice patch first")
+    with open(path, encoding="utf-8") as f:
+        boxes = [b["box"] for b in json.load(f)["patcher"]["boxes"]]
+    ins = outs = 0
+    for b in boxes:
+        parts = (b.get("text") or "").split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            if parts[0] in ("in", "in~"):
+                ins = max(ins, int(parts[1]))
+            elif parts[0] in ("out", "out~"):
+                outs = max(outs, int(parts[1]))
+    sig_outs = {int(b["text"].split()[1]) for b in boxes
+                if (b.get("text") or "").startswith("out~ ") and b["text"].split()[1].isdigit()}
+    otype = ["signal" if i + 1 in sig_outs else "" for i in range(outs)]
+    name = os.path.splitext(os.path.basename(path))[0]
+    return extern(patch, f"poly~ {name} {n}{(' ' + extra) if extra else ''}", x, y,
+                  max(ins, 1), outs, outlettype=otype)
+
+
+def gen(patch, code, x, y, ins=None, outs=None):
+    """gen~ box containing one GenExpr codebox. I/O counts come from in1..inN / out1..outN in
+    `code` unless given. Example: gen(p, "out1 = in1 * in2;", 30, 100)."""
+    ins = ins or max([int(k) for k in re.findall(r"\bin(\d+)\b", code)] or [1])
+    outs = outs or max([int(k) for k in re.findall(r"\bout(\d+)\b", code)] or [1])
+    inner, lines = [], []
+    for i in range(ins):
+        inner.append({"box": {"id": f"obj-{i + 1}", "maxclass": "newobj", "text": f"in {i + 1}",
+                              "numinlets": 0, "numoutlets": 1, "outlettype": [""],
+                              "patching_rect": [20.0 + 60 * i, 20.0, 30.0, 22.0]}})
+    cb = f"obj-{ins + 1}"
+    nlines = code.count("\n") + 1
+    inner.append({"box": {"id": cb, "maxclass": "codebox", "code": code, "fontface": 0,
+                          "fontname": "Menlo", "fontsize": 12.0, "numinlets": ins, "numoutlets": outs,
+                          "outlettype": [""] * outs,
+                          "patching_rect": [20.0, 60.0, 400.0, 40.0 + 15 * nlines]}})
+    for o in range(outs):
+        inner.append({"box": {"id": f"obj-{ins + 2 + o}", "maxclass": "newobj", "text": f"out {o + 1}",
+                              "numinlets": 1, "numoutlets": 0,
+                              "patching_rect": [20.0 + 60 * o, 120.0 + 15 * nlines, 37.0, 22.0]}})
+    for i in range(ins):
+        lines.append({"patchline": {"source": [f"obj-{i + 1}", 0], "destination": [cb, i]}})
+    for o in range(outs):
+        lines.append({"patchline": {"source": [cb, o], "destination": [f"obj-{ins + 2 + o}", 0]}})
+    gp = {"fileversion": 1, "appversion": {"major": 8, "minor": 6, "revision": 0, "architecture": "x64",
+                                            "modernui": 1},
+          "classnamespace": "dsp.gen", "rect": [100.0, 100.0, 600.0, 450.0], "bglocked": 0,
+          "openinpresentation": 0, "default_fontsize": 12.0, "default_fontface": 0,
+          "default_fontname": "Arial", "gridonopen": 1, "gridsize": [15.0, 15.0], "gridsnaponopen": 1,
+          "objectsnaponopen": 1, "statusbarvisible": 2, "toolbarvisible": 1, "boxes": inner, "lines": lines}
+    obj = extern(patch, "gen~", x, y, ins, outs, outlettype=["signal"] * outs)
+    obj._dict["box"]["patcher"] = gp
+    return obj
+
+
+def js(patch, filename, code, x, y):
+    """Write `code` to <filename> in the current directory and place a [js filename] box.
+    Declare `inlets = N;` / `outlets = N;` in the code (defaults 1/1)."""
+    m_in = re.search(r"^\s*inlets\s*=\s*(\d+)", code, re.M)
+    m_out = re.search(r"^\s*outlets\s*=\s*(\d+)", code, re.M)
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(code if code.endswith("\n") else code + "\n")
+    return extern(patch, f"js {filename}", x, y, int(m_in.group(1)) if m_in else 1,
+                  int(m_out.group(1)) if m_out else 1,
+                  saved_object_attributes={"filename": filename, "parameter_enable": 0})
 
 
 _NOTEXT = "\x00mpl-notext"
@@ -442,6 +643,11 @@ def save(patch, path, device_type=None):
         if device_type not in AMXD_TYPES:
             raise MaxPatchError(f"device_type must be one of {', '.join(AMXD_TYPES)} for .amxd")
         out = path if path.endswith(".amxd") else path.rsplit(".maxpat", 1)[0] + ".amxd"
+        presented = [b for b in d["patcher"]["boxes"] if b["box"].get("presentation")]
+        d["patcher"]["openinpresentation"] = 1 if presented else 0
+        d["patcher"]["devicewidth"] = 0.0  # 0 = Live sizes the device to its face
+        if not presented:
+            _note("device has no face: Live will show the patch cords. Put controls on it with mpl.face(...)")
         write_amxd(d, out, device_type)
     else:
         out = path if path.endswith(".maxpat") else path + ".maxpat"

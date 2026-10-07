@@ -150,6 +150,28 @@ def lint(d, dev, patch_dir, db, alias):
             E("midi_effect has no midiout/noteout")
         if "plugout~" in nset and "clip~" not in nset:
             W("no clip~ -1. 1. before plugout~ (speaker safety)")
+        shown = [b for b in boxes if b.get("presentation")]
+        if not shown:
+            W("device has no face (presentation view): Live shows the patch cords instead; use mpl.face()")
+        else:
+            if d["patcher"].get("openinpresentation") != 1:
+                W("controls are presented but openinpresentation is off: Live won't show the face")
+            for b in boxes:
+                if b.get("maxclass", "").startswith("live.") and b.get("maxclass") != "live.gain~" \
+                        and not b.get("presentation") and b.get("maxclass") in ("live.dial", "live.slider",
+                        "live.numbox", "live.toggle", "live.button", "live.menu", "live.text", "live.tab"):
+                    W(f"{b['id']} [{b['maxclass']}] is not on the device face")
+            for b in shown:
+                r = b.get("presentation_rect", [0, 0, 0, 0])
+                if r[1] + r[3] > 169:
+                    W(f"{b['id']} [{label(b)}] extends below the 169 px device face (y+h={r[1] + r[3]:.0f})")
+            n = 0
+            for i in range(len(shown)):
+                for j in range(i + 1, len(shown)):
+                    if overlaps(shown[i].get("presentation_rect", [0] * 4), shown[j].get("presentation_rect", [0] * 4)):
+                        n += 1
+                        if n <= 3:
+                            W(f"overlap on device face: [{label(shown[i])}] and [{label(shown[j])}]")
         for b in boxes:
             if b.get("maxclass") in ("dial", "slider", "toggle", "number", "flonum", "umenu"):
                 I(f"{b['id']} [{b['maxclass']}] is not automatable in Live; consider live.{ {'number': 'numbox', 'flonum': 'numbox', 'umenu': 'menu'}.get(b['maxclass'], b['maxclass']) }")

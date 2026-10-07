@@ -2,8 +2,6 @@
 import os
 import sys
 
-import maxpylang as mp
-
 # mpl.py lives in the skill; normally it is copied next to the build script
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skills", "maxpylang", "scripts"))
 import mpl  # noqa: E402
@@ -11,7 +9,7 @@ import mpl  # noqa: E402
 SCALE = [0, 3, 5, 7, 10, 12, 15, 17]          # minor pentatonic degrees (semitones)
 BASE, TEMPO = 48, 150                         # C3, ms per step
 
-p = mp.MaxPatch(verbose=False)
+p = mpl.patch()
 
 mpl.comment(p, "=== CLOCK: click ezdac~ (bottom), then the toggle ===", 30, 10)
 tog   = mpl.at(p, "toggle", 30, 40)

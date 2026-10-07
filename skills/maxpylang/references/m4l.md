@@ -18,10 +18,24 @@
   Plain `dial`/`slider`/`number` work but are not saved with the Live set and can't be automated.
 - Parameter long names must be unique within a device.
 - Live's transport: `transport`, `metro 16n @quantize 16n` and `plugsync~` follow Live tempo.
-- `live.thisdevice` (outlet 0 bangs when the device is loaded) is the M4L-safe `loadbang`; place with
-  `mpl.extern(p, "live.thisdevice", x, y, 1, 3)`.
-- The Live API (`live.path`, `live.object`, `live.observer`) is outside MaxPyLang's database: use
-  `mpl.extern` with the I/O counts from the Max reference.
+- `live.thisdevice` (outlet 0 bangs when the device is loaded) is the M4L-safe `loadbang`.
+- Live API objects (`live.thisdevice`, `live.path`, `live.object`, `live.observer`) aren't in MaxPyLang's
+  database; `mpl.at` places them with the I/O counts below. Recipe 14 follows the Set's tempo.
+
+## The device face (presentation view)
+
+Live shows a device as a strip **169 px tall**. What appears there is the patch's *presentation view*;
+without one, Live shows the patching layout cropped to that strip (cords and all). So every device needs:
+
+```python
+mpl.face(cutoff, reso, mix)          # left to right at y=10, 10 px apart
+mpl.present(label, 10, 70)           # or place one box exactly (presentation coordinates)
+```
+
+`mpl.save(..., device_type=...)` then turns `openinpresentation` on and sets `devicewidth` to 0 (Live sizes
+the device to its face). It warns if nothing is on the face. Check it with
+`render_patch.py device.amxd --presentation`; `inspect_patch.py` warns about `live.*` controls left off the
+face, boxes below the 169 px line, and overlaps.
 
 ## live.* parameters
 
@@ -43,15 +57,20 @@ mpl.live_param(t, "Bypass", ptype="int", mmin=0, mmax=1)
 unitstyle names: `int float ms hz db % pan semitones midi custom native`.
 Note `%` shows the raw value with a % sign: use a 0-100 range with it, or `float` for 0-1.
 
-Built-in I/O (curated, verify in Max if a cord fails):
+I/O of the `live.*` objects. Counts checked against real Max-saved patches on GitHub
+(e.g. 52 `live.dial`, 64 `live.toggle`, 26 `live.observer` boxes); `live.slider` follows `live.dial`.
 
 | object | in | out | outlet meaning |
 |---|---|---|---|
 | live.dial / live.slider / live.numbox | 1 | 2 | value, normalized 0-1 |
 | live.toggle / live.button | 1 | 1 | 0/1, bang |
-| live.menu | 1 | 3 | index, item symbol, normalized |
+| live.menu / live.tab | 1 | 3 | index, item symbol, normalized |
 | live.text | 1 | 2 | value, text |
 | live.gain~ | 2 | 5 | L, R signals, then dB value and meter info |
+| live.thisdevice | 1 | 3 | bang when ready, device on/off, preview mode |
+| live.path | 1 | 3 | id (follows), id (fixed), dumpout |
+| live.object | 2 | 1 | results (inlets: get/set/call, object id) |
+| live.observer | 2 | 2 | property value, dumpout (inlets: `property <name>`, object id) |
 
 ## Signal-flow templates
 
@@ -63,7 +82,7 @@ midi_effect:  midiin -> midiparse -0-> unpack 0 0 -> (process) -> pack 0 0 -> mi
                         midiparse outlets 1..5 -> midiformat inlets 1..5 (pass-through)
 ```
 
-Full working scripts: `recipes.md` sections 6-8.
+Full working scripts: `recipes.md` sections 6-8 and 14.
 
 ## Loading / round-tripping
 

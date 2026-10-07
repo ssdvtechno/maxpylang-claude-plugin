@@ -64,6 +64,11 @@ every unknown in a patch saves with the same id and text. Never save a raw patch
 
 `UnknownObjectWarning` (`maxpylang.exceptions`) is emitted for unknown names / bad args.
 
+## Helpers added by mpl (not part of MaxPyLang)
+
+`mpl.present/face` (presentation view), `autolayout`, `poly`, `gen`, `js`, `load`, `write_amxd/read_amxd`.
+See the module docstring of `scripts/mpl.py`.
+
 ## Stubs
 
 `from maxpylang.objects import cycle_tilde, ezdac_tilde, jit_movie, _2d_wave_tilde, in_` -
