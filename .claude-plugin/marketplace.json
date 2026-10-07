@@ -1,0 +1,16 @@
+{
+  "name": "maxpylang-tools",
+  "owner": {
+    "name": "ssdvtechno",
+    "url": "https://github.com/ssdvtechno"
+  },
+  "description": "Unofficial Claude Code plugin for generating Max/MSP patches and Max for Live devices with MaxPyLang.",
+  "plugins": [
+    {
+      "name": "maxpylang",
+      "source": "./",
+      "version": "0.1.3",
+      "description": "Generate and edit Max/MSP patches and Max for Live devices from Python (MaxPyLang)."
+    }
+  ]
+}
